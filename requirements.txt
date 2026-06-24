@@ -1,0 +1,14 @@
+scikit-learn
+pandas
+torch
+transformers
+scipy
+google-play-scraper
+numpy 
+nltk 
+Sastrawi 
+openpyxl
+tensorflow
+matplotlib
+seaborn
+wordcloud
