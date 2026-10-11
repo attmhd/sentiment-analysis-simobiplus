@@ -1,189 +1,52 @@
-# Analisis Sentimen Ulasan Aplikasi SimobiPlus dengan Pendekatan Semi-Supervised Learning
+# SimobiPlus Review Sentiment Analysis with Pseudo-Labeling
 
-Proyek ini mengimplementasikan pemrosesan bahasa alami (Natural Language Processing) untuk melakukan analisis sentimen terhadap ulasan pengguna aplikasi SimobiPlus di Google Play Store. Pendekatan yang digunakan adalah kombinasi Supervised Learning dan Semi-Supervised Learning (Pseudo-Labeling) untuk mengatasi keterbatasan data berlabel manual. Proyek ini melatih dan membandingkan tiga arsitektur model: Support Vector Machine (SVM), Bidirectional Long Short-Term Memory (Bi-LSTM), dan IndoBERT.
+An Indonesian-language NLP project that classifies Google Play reviews of the SimobiPlus banking app as **negative, neutral, or positive**. I built the workflow from review collection and manual annotation through semi-supervised labeling, model training, and evaluation.
 
-## Struktur Proyek
+## At a glance
 
-Struktur direktori dari proyek ini adalah sebagai berikut:
+| | |
+|---|---|
+| **Problem** | Thousands of user reviews are difficult to analyze manually, while high-quality sentiment labels are expensive to produce. |
+| **Approach** | Train an IndoBERT teacher on manually labeled reviews, then use its high-confidence predictions to expand the training set. Compare SVM, Bi-LSTM, and IndoBERT on the resulting dataset. |
+| **Data** | 10,000 collected reviews; 976 manually labeled reviews plus 7,789 accepted pseudo-labels produced a final dataset of 8,765 reviews. |
+| **Recorded result** | Fine-tuned IndoBERT reached 99.00% test accuracy and 0.93 macro F1 in the reported 70:30 split. |
+| **My work** | Data collection, Indonesian text preprocessing, annotation workflow, pseudo-labeling, model experiments, and evaluation. |
 
-```
-.
-|-- data/
-|   |-- processed/
-|   |   |-- final/
-|   |   |   `-- dataset_final_10000.csv
-|   |   |-- manual-labeling/
-|   |   |   |-- data_siap_label_manual.csv
-|   |   |   |-- data_siap_label_manual_1000.csv
-|   |   |   `-- manual_labelled_data.csv
-|   |   `-- unlabelled-data/
-|   |       `-- sisa_data_unlabeled_9000.csv
-|   `-- raw/
-|       `-- simobi_reviews.csv
-|-- model/
-|   |-- model_indobert_final/
-|   |   |-- config.json
-|   |   |-- model.safetensors
-|   |   |-- tokenizer.json
-|   |   |-- tokenizer_config.json
-|   |   `-- training_args.bin
-|   `-- saved_teacher_model/
-|       |-- config.json
-|       |-- model.safetensors
-|       |-- tokenizer.json
-|       |-- tokenizer_config.json
-|       `-- training_args.bin
-|-- notebook/
-|   |-- 01_scrapping_data.ipynb
-|   |-- 02_preprocessing_and_data_splitting.ipynb
-|   |-- 03_pseudo_labeling.ipynb
-|   `-- 04_model_training_and_evaluation.ipynb
-|-- requirements.txt
-`-- README.md
-```
+## Why pseudo-labeling instead of a sentiment lexicon?
 
-## Alur Kerja Proyek
+A sentiment lexicon assigns polarity from a predefined word list. That can miss context in informal app reviews, such as negation, slang, or a word whose meaning changes with the surrounding sentence. In this project, I used **manually labeled examples to train an IndoBERT teacher model**, then used the teacher's predictions to label additional reviews. I kept only predictions with at least **90% confidence**. The pseudo-labels therefore come from a contextual model trained on the project's annotations, **not from lexicon-based sentiment scores**.
 
-Alur kerja proyek terbagi menjadi empat tahap utama yang direpresentasikan oleh masing-masing notebook:
+The preprocessing notebook does use a slang-normalization dictionary. Its role is to standardize text; it is not used to assign sentiment labels.
 
-### 1. Scraping Data (01_scrapping_data.ipynb)
-Mengambil ulasan aplikasi SimobiPlus (App ID: com.simas.mobile.SimobiPlus) langsung dari Google Play Store menggunakan library google-play-scraper. 
-* Total ulasan mentah yang berhasil diambil sebanyak 10.000 ulasan.
-* Hasil ekspor data mentah disimpan pada berkas data/raw/simobi_reviews.csv.
+## Workflow
 
-### 2. Preprocessing dan Pembagian Data (02_preprocessing_and_data_splitting.ipynb)
-Melakukan pembersihan data mentah sebelum proses pelabelan dan pemodelan:
-* Mengubah semua teks menjadi huruf kecil (case folding).
-* Menghapus tautan URL, mention, hashtag, angka, dan tanda baca.
-* Normalisasi kata tidak baku (slang) menggunakan kamus normalisasi bahasa Indonesia (slang_dict).
-* Pembagian data awal untuk melatih model dasar (Teacher Model):
-  - 1.000 ulasan diambil secara proporsional berdasarkan rating bintang (Rating 1-2: 400 sampel Negatif; Rating 3: 200 sampel Netral; Rating 4-5: 400 sampel Positif) untuk proses manual labeling menggunakan platform Label Studio (Heartex, 2020).
-  - Sisa 9.000 ulasan disimpan sebagai data tidak berlabel (unlabeled data) di berkas data/processed/unlabelled-data/sisa_data_unlabeled_9000.csv.
+1. [Collect reviews](notebook/01_scrapping_data.ipynb) from Google Play and save them in [the raw dataset](data/raw/simobi_reviews.csv).
+2. [Clean and split the data](notebook/02_preprocessing_and_data_splitting.ipynb). This includes case folding, removing unwanted text elements, and normalizing Indonesian slang. A rating-stratified sample of 1,000 reviews was prepared for manual annotation; 976 manually labeled reviews were used in the teacher-model stage.
+3. [Train the teacher and generate pseudo-labels](notebook/03_pseudo_labeling.ipynb). The IndoBERT teacher predicted labels for 9,000 unlabeled reviews; 7,789 predictions met the 90% confidence threshold. Together with the manual labels, they formed [the final dataset](data/processed/final/dataset_final_10000.csv). Despite the filename, the reported final dataset has **8,765 rows**.
+4. [Train and evaluate three classifiers](notebook/04_model_training_and_evaluation.ipynb): SVM with TF-IDF, Bi-LSTM, and fine-tuned IndoBERT.
 
-### 3. Pseudo-Labeling (03_pseudo_labeling.ipynb)
-Menerapkan pendekatan Semi-Supervised Learning dengan Pseudo-Labeling berdasarkan metodologi Lee (2013):
-* Menggunakan 976 data hasil pelabelan manual dari Label Studio (data/processed/manual-labeling/manual_labelled_data.csv) untuk melatih Teacher Model menggunakan arsitektur IndoBERT (indobenchmark/indobert-base-p1) (Wilie dkk., 2020).
-* Teacher Model digunakan untuk memprediksi label dari 9.000 data tidak berlabel.
-* Hanya ulasan dengan probabilitas keyakinan (confidence score) prediksi model >= 90% (didapatkan sebanyak 7.789 ulasan) yang dijadikan sebagai data Pseudo-Labels (Lee, 2013).
-* Menggabungkan 976 ulasan berlabel manual dengan 7.789 ulasan pseudo-labeled menjadi total 8.765 ulasan (dataset_final_10000.csv).
+The final class distribution is **4,812 negative**, **192 neutral**, and **3,761 positive**. Because the neutral class is small, macro F1 and per-class results matter alongside accuracy.
 
-### 4. Pelatihan Model dan Evaluasi Akhir (04_model_training_and_evaluation.ipynb)
-Melatih dan membandingkan performa tiga model klasifikasi sentimen pada dataset gabungan final.
+## Reported results
 
-## Distribusi Dataset Final
+| Model | Test split | Accuracy | Macro F1 | Neutral F1 |
+|---|---:|---:|---:|---:|
+| SVM + TF-IDF | 20% (1,753 reviews) | 97.15% | 0.69 | 0.10 |
+| Bi-LSTM | 20% (1,753 reviews) | 97.03% | 0.78 | 0.38 |
+| IndoBERT | 30% (2,630 reviews) | **99.00%** | **0.93** | **0.80** |
 
-Distribusi kelas pada dataset final (8.765 ulasan) adalah sebagai berikut:
-* Kelas Negatif (Negative): 4.812 ulasan
-* Kelas Positif (Positive): 3.761 ulasan
-* Kelas Netral (Neutral): 192 ulasan
+These figures are reported in the project experiment. IndoBERT recorded the strongest result, including a substantially higher F1 score for neutral reviews. Its test split differs from the other models, so the table is a summary of recorded experiments rather than a comparison on one identical test set.
 
-## Eksperimen dan Hasil Evaluasi Model
+## Evaluation limits
 
-Proyek ini menguji tiga skema pemodelan dengan pembagian dataset yang berbeda untuk mendapatkan performa terbaik:
+- The final dataset contains both human labels and model-generated pseudo-labels. A test split from this dataset is **not equivalent to an independent, fully human-labeled test set**.
+- Neutral reviews account for only 192 of 8,765 examples; overall accuracy can hide weak performance on this minority class.
+- Model weights referenced in the original README are **not present in this repository**. The notebooks and data can be reviewed, but an inference example that loads those weights cannot run directly from a fresh clone.
 
-### 1. SVM + TF-IDF (Skema 1)
-* Pembagian Data: 80% Train, 20% Test (1.753 data uji)
-* Representasi Teks: TF-IDF Vectorizer
-* Akurasi Pengujian: 97.15%
+## Explore or run the project
 
-Laporan Klasifikasi SVM:
-```
-              precision    recall  f1-score   support
+Start with the four numbered [notebooks](notebook/) or inspect the supplied [data](data/) and results above. To run the notebooks, install the listed dependencies with `pip install -r requirements.txt`, then adjust any local or Google Colab paths for your environment. Training IndoBERT and Bi-LSTM requires suitable compute resources. This repository documents an experiment, not a production inference service.
 
-    Negative       0.96      0.99      0.98       963
-     Neutral       1.00      0.05      0.10        38
-    Positive       0.99      0.99      0.99       752
+**Tools:** Python, pandas, scikit-learn, TensorFlow/Keras, PyTorch, Hugging Face Transformers, IndoBERT, and `google-play-scraper`. See [requirements.txt](requirements.txt).
 
-    accuracy                           0.97      1753
-   macro avg       0.98      0.68      0.69      1753
-weighted avg       0.97      0.97      0.96      1753
-```
-
-### 2. Bi-LSTM + Embedding (Skema 2)
-* Pembagian Data: 80% Train, 20% Test (1.753 data uji)
-* Representasi Teks: Keras Tokenizer & Word Embedding
-* Akurasi Pengujian: 97.03%
-
-Laporan Klasifikasi Bi-LSTM:
-```
-              precision    recall  f1-score   support
-
-    Negative       0.96      0.99      0.97       963
-     Neutral       0.67      0.26      0.38        38
-    Positive       0.99      0.99      0.99       752
-
-    accuracy                           0.97      1753
-   macro avg       0.87      0.75      0.78      1753
-weighted avg       0.97      0.97      0.97      1753
-```
-
-### 3. IndoBERT Fine-Tuning (Skema 3)
-* Pembagian Data: 70% Train, 30% Test (2.630 data uji)
-* Arsitektur Model: indobenchmark/indobert-base-p1
-* Akurasi Pengujian: 99.00%
-
-Laporan Klasifikasi IndoBERT:
-```
-              precision    recall  f1-score   support
-
-    Negative       0.99      0.99      0.99      1444
-     Neutral       0.89      0.72      0.80        58
-    Positive       0.99      1.00      1.00      1128
-
-    accuracy                           0.99      2630
-   macro avg       0.96      0.91      0.93      2630
-weighted avg       0.99      0.99      0.99      2630
-```
-
-## Ringkasan Perbandingan Model
-
-| Model | Akurasi Pengujian | F1-Score (Macro Avg) | F1-Score (Weighted Avg) |
-|---|---|---|---|
-| SVM + TF-IDF | 97.15% | 69% | 96% |
-| Bi-LSTM | 97.03% | 78% | 97% |
-| IndoBERT | 99.00% | 93% | 99% |
-
-## Kesimpulan
-
-* IndoBERT memberikan performa terbaik dengan akurasi pengujian mencapai 99.00% dan F1-Score (Macro Avg) sebesar 93%. Model ini sangat baik dalam mengenali pola kalimat berbahasa Indonesia karena didukung oleh arsitektur Transformer yang dilatih pada korpus bahasa Indonesia yang besar.
-* Pada kelas minoritas (Netral), IndoBERT menunjukkan peningkatan performa yang sangat signifikan (F1-score 80%) dibandingkan dengan SVM (F1-score 10%) dan Bi-LSTM (F1-score 38%). Hal ini menunjukkan kekuatan pre-trained model dalam menangani ketidakseimbangan kelas (*class imbalance*) pada data sentimen ulasan.
-
-## Contoh Inferensi Model (IndoBERT)
-
-Untuk melakukan prediksi sentimen pada ulasan baru, Anda dapat menggunakan modul transformers dengan kode berikut:
-
-```python
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model_path = "./model/model_indobert_final"
-
-tokenizer = AutoTokenizer.from_pretrained(model_path)
-model = AutoModelForSequenceClassification.from_pretrained(model_path).to(device)
-
-def prediksi_sentimen(teks):
-    inputs = tokenizer(teks, return_tensors="pt", truncation=True, max_length=128).to(device)
-    with torch.no_grad():
-        outputs = model(**inputs)
-        probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
-        pred_label_id = torch.argmax(probs, dim=-1).item()
-        
-    labels = {0: "Negative", 1: "Neutral", 2: "Positive"}
-    return labels[pred_label_id], probs[0][pred_label_id].item()
-
-# Contoh Penggunaan:
-teks_ulasan = "Aplikasi ini sangat memudahkan transaksi saya sehari-hari."
-hasil, skor = prediksi_sentimen(teks_ulasan)
-print(f"Sentimen: {hasil} (Confidence: {skor * 100:.2f}%)")
-```
-
-## Author
-
-* Muhammad Attan (https://github.com/attmhd)
-
-## References
-
-* Lee, D. H. (2013). Pseudo-Label: The Simple and Efficient Semi-Supervised Learning Method for Deep Neural Networks. Workshop on Challenges in Representation Learning, ICML.
-* Heartex. (2020). Label Studio: Open Source Multi-type Data Labeling Tool. https://github.com/HumanSignal/label-studio.
-* Wilie, B., et al. (2020). IndoNLU: Benchmark and Resources for Evaluating Indonesian Natural Language Understanding. arXiv preprint arXiv:2009.01857.
+**Author:** [Muhammad Attan](https://github.com/attmhd)
